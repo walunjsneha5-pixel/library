@@ -1,0 +1,89 @@
+# Environment Variables - DO NOT COMMIT CREDENTIALS
+.env
+.env.local
+.env.*.local
+.env.production
+.env.production.local
+
+# AWS Configuration
+.aws/credentials
+.aws/config
+aws-config.json
+
+# Secrets and Keys
+*.key
+*.pem
+.ssh/
+secrets/
+credentials.json
+
+# IDE and Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.sublime-project
+*.sublime-workspace
+
+# Node/npm (if used)
+node_modules/
+npm-debug.log
+yarn-error.log
+.npm
+
+# PHP/Composer
+vendor/
+composer.lock
+.php-cs-fixer.cache
+
+# Logs
+*.log
+logs/
+.git/logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+
+# OS files
+.DS_Store
+.AppleDouble
+.LSOverride
+.Spotlight-V100
+.Trashes
+._*
+
+# Generated files
+dist/
+build/
+.cache/
+*.zip
+*.tar.gz
+
+# GitHub Actions
+.github/workflows/*.log
+
+# EB Deployment
+eb-docker-compose.yml
+.elasticbeanstalk/
+/deployments/
+
+# Database dumps (unless versioned)
+*.sql.gz
+*.sql.bak
+
+# Sensitive files
+.github-secrets.txt
+database.backup
+*.backup
+
+# Project specific
+uploads/
+tmp/
+cache/
+.ebignore

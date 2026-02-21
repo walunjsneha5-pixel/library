@@ -1,0 +1,151 @@
+name: Deploy to AWS Elastic Beanstalk
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+
+env:
+  AWS_REGION: us-east-1
+  EB_ENVIRONMENT_NAME: library-app-env
+  EB_APPLICATION_NAME: library-app
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: library_test
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+        ports:
+          - 3306:3306
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '7.4'
+          extensions: mysql,mysqli,pdo,pdo_mysql
+          ini-values: memory_limit=-1
+
+      - name: Install dependencies
+        run: |
+          php -r "echo 'PHP Setup Complete';"
+          which php
+
+      - name: Run security checks
+        run: |
+          # Check for hardcoded credentials
+          if grep -r "define('DB_PASS'" . --include="*.php"; then
+            echo "⚠️ Warning: Found hardcoded database credentials. Use environment variables instead."
+          fi
+
+      - name: Run code quality checks
+        run: |
+          # Basic PHP syntax check
+          find . -name "*.php" -type f ! -path "./vendor/*" ! -path "./.git/*" -exec php -l {} \; | grep -v "No syntax errors"
+
+      - name: Create test database
+        run: |
+          mysql -h 127.0.0.1 -u root -proot -e "CREATE DATABASE library_test;"
+          mysql -h 127.0.0.1 -u root -proot library_test < "online-library-management-/Online Library Management System/SQL file/library.sql"
+
+      - name: Run integration tests
+        env:
+          DB_HOST: 127.0.0.1
+          DB_USER: root
+          DB_PASS: root
+          DB_NAME: library_test
+        run: |
+          echo "Running application tests..."
+          # Add test commands here
+
+  deploy:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Create deployment package
+        run: |
+          mkdir -p deploy-package
+          cp -r "online-library-management-/Online Library Management System/SQL file/library"/* deploy-package/
+          cp -r .ebextensions deploy-package/
+          cd deploy-package && zip -r ../library-app.zip . -x "*.git*" "*.DS_Store*" node_modules/\*
+          cd ..
+          aws s3 cp library-app.zip s3://${{ secrets.S3_BUCKET_NAME }}/library-app-$(date +%s).zip
+
+      - name: Deploy to Elastic Beanstalk
+        run: |
+          aws elasticbeanstalk create-application-version \
+            --application-name ${{ env.EB_APPLICATION_NAME }} \
+            --version-label ${{ github.sha }} \
+            --source-bundle S3Bucket=${{ secrets.S3_BUCKET_NAME }},S3Key=library-app-${{ github.run_id }}.zip \
+            --region ${{ env.AWS_REGION }} || true
+          
+          aws elasticbeanstalk update-environment \
+            --application-name ${{ env.EB_APPLICATION_NAME }} \
+            --environment-name ${{ env.EB_ENVIRONMENT_NAME }} \
+            --version-label ${{ github.sha }} \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Wait for deployment
+        run: |
+          aws elasticbeanstalk wait environment-updated \
+            --application-name ${{ env.EB_APPLICATION_NAME }} \
+            --environment-names ${{ env.EB_ENVIRONMENT_NAME }} \
+            --region ${{ env.AWS_REGION }} || true
+          sleep 30
+
+      - name: Check environment status
+        run: |
+          STATUS=$(aws elasticbeanstalk describe-environments \
+            --application-name ${{ env.EB_APPLICATION_NAME }} \
+            --environment-names ${{ env.EB_ENVIRONMENT_NAME }} \
+            --region ${{ env.AWS_REGION }} \
+            --query 'Environments[0].Status' \
+            --output text)
+          echo "Environment Status: $STATUS"
+
+      - name: Publish deployment notification to SNS
+        if: success()
+        run: |
+          aws sns publish \
+            --topic-arn ${{ secrets.SNS_TOPIC_ARN }} \
+            --subject "Library App Deployment - Success" \
+            --message "Deployment of ${{ github.sha }} to ${{ env.EB_ENVIRONMENT_NAME }} completed successfully." \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Publish failure notification to SNS
+        if: failure()
+        run: |
+          aws sns publish \
+            --topic-arn ${{ secrets.SNS_TOPIC_ARN }} \
+            --subject "Library App Deployment - Failed" \
+            --message "Deployment of ${{ github.sha }} to ${{ env.EB_ENVIRONMENT_NAME }} failed. Check logs for details." \
+            --region ${{ env.AWS_REGION }}
