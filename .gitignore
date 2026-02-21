@@ -70,7 +70,9 @@ build/
 
 # EB Deployment
 eb-docker-compose.yml
-.elasticbeanstalk/
+.elasticbeanstalk/*.yml
+.elasticbeanstalk/config.yml
+.ebignore
 /deployments/
 
 # Database dumps (unless versioned)
